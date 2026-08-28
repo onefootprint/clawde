@@ -100,7 +100,7 @@ fn parse_stdout_line(line: &str) -> Result<Option<Value>> {
     }
     if !line.starts_with('{') {
         tracing::debug!(
-            target: "claude_agent_sdk",
+            target: "clawde",
             "Skipping non-JSON line from CLI stdout: {}",
             &line[..line.len().min(200)]
         );
@@ -335,7 +335,7 @@ impl SubprocessCliTransport {
                     Ok(Value::Object(obj)) => settings_obj = obj,
                     _ => {
                         tracing::warn!(
-                            target: "claude_agent_sdk",
+                            target: "clawde",
                             "Failed to parse settings as JSON, treating as file path: {settings_str}"
                         );
                         if let Ok(content) = std::fs::read_to_string(settings_str) {
@@ -355,7 +355,7 @@ impl SubprocessCliTransport {
                     }
                     Err(_) => {
                         tracing::warn!(
-                            target: "claude_agent_sdk",
+                            target: "clawde",
                             "Settings file not found: {settings_str}"
                         );
                     }
@@ -719,7 +719,7 @@ impl SubprocessCliTransport {
         {
             if version < MINIMUM_CLAUDE_CODE_VERSION {
                 tracing::warn!(
-                    target: "claude_agent_sdk",
+                    target: "clawde",
                     "Claude Code version {} at {} is unsupported in the Agent SDK. \
                      Minimum required version is {}.{}.{}. Some features may not work correctly.",
                     version_output,
@@ -943,7 +943,7 @@ impl Transport for SubprocessCliTransport {
             #[cfg(not(unix))]
             {
                 tracing::warn!(
-                    target: "claude_agent_sdk",
+                    target: "clawde",
                     "ClaudeAgentOptions.user {user:?} is not supported on this platform; ignoring"
                 );
             }
@@ -1111,7 +1111,7 @@ impl Transport for SubprocessCliTransport {
                         Ok(None) => {}
                         Err(_) => {
                             tracing::debug!(
-                                target: "claude_agent_sdk",
+                                target: "clawde",
                                 "Dropping truncated JSON at end of CLI stdout: {}",
                                 &tail[..tail.len().min(200)]
                             );

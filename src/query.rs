@@ -354,10 +354,10 @@ impl Drop for MessageStream {
 /// # Examples
 ///
 /// ```no_run
-/// use claude_agent_sdk::{query, ClaudeAgentOptions};
+/// use clawde::{query, ClaudeAgentOptions};
 /// use futures::StreamExt;
 ///
-/// # async fn example() -> claude_agent_sdk::Result<()> {
+/// # async fn example() -> clawde::Result<()> {
 /// let mut messages = query("What is the capital of France?", ClaudeAgentOptions::default()).await?;
 /// while let Some(message) = messages.next().await {
 ///     println!("{:?}", message?);

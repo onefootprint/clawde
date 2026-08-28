@@ -191,7 +191,7 @@ impl TranscriptMirrorBatcher {
             }
             let Some(key) = file_path_to_session_key(&file_path, &self.projects_dir) else {
                 tracing::warn!(
-                    target: "claude_agent_sdk",
+                    target: "clawde",
                     "[SessionStore] dropping mirror frame: filePath {file_path} is not under {} \
                      -- subprocess CLAUDE_CONFIG_DIR likely differs from parent (custom env / \
                      container?)",
@@ -226,7 +226,7 @@ impl TranscriptMirrorBatcher {
                     Ok(Err(e)) => {
                         last_err = Some(e.to_string());
                         tracing::debug!(
-                            target: "claude_agent_sdk",
+                            target: "clawde",
                             "[TranscriptMirrorBatcher] append attempt {}/{} failed for {}: {e}",
                             attempt + 1,
                             MIRROR_APPEND_MAX_ATTEMPTS,
@@ -244,7 +244,7 @@ impl TranscriptMirrorBatcher {
                             self.send_timeout.as_secs_f64()
                         ));
                         tracing::debug!(
-                            target: "claude_agent_sdk",
+                            target: "clawde",
                             "[TranscriptMirrorBatcher] append timed out after {:.1}s for {} — \
                              not retrying",
                             self.send_timeout.as_secs_f64(),
@@ -257,7 +257,7 @@ impl TranscriptMirrorBatcher {
             if !succeeded {
                 let err = last_err.unwrap_or_else(|| "unknown error".to_string());
                 tracing::error!(
-                    target: "claude_agent_sdk",
+                    target: "clawde",
                     "[TranscriptMirrorBatcher] flush failed for {file_path}: {err}"
                 );
                 errors.push((key, err));

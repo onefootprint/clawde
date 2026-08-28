@@ -9,7 +9,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use claude_agent_sdk::{
+use clawde::{
     delete_session, fork_session, get_session_info, get_session_messages, get_subagent_messages,
     import_session_to_store, list_sessions, list_subagents, rename_session, tag_session,
     ImportSessionOptions, InMemorySessionStore, ListSessionsOptions, SessionKey,
@@ -65,7 +65,7 @@ fn filesystem_session_workflows() {
     let work_dir = tempfile::tempdir().unwrap();
     let canonical = std::fs::canonicalize(work_dir.path()).unwrap();
     let directory = canonical.to_string_lossy().to_string();
-    let project_key = claude_agent_sdk::project_key_for_directory(Some(&directory));
+    let project_key = clawde::project_key_for_directory(Some(&directory));
     let project_dir: PathBuf = config_dir.path().join("projects").join(&project_key);
 
     write_file(
@@ -160,7 +160,7 @@ fn filesystem_session_workflows() {
     let missing = "770e8400-e29b-41d4-a716-446655440002";
     assert!(matches!(
         rename_session(missing, "x", Some(&directory)),
-        Err(claude_agent_sdk::ClaudeSdkError::SessionNotFound(_))
+        Err(clawde::ClaudeSdkError::SessionNotFound(_))
     ));
 
     // --- fork -----------------------------------------------------------

@@ -5,13 +5,11 @@
 
 use std::sync::Arc;
 
-use claude_agent_sdk::{
-    query, ClaudeAgentOptions, ContentBlock, Message, PermissionResult, ToolsConfig,
-};
+use clawde::{query, ClaudeAgentOptions, ContentBlock, Message, PermissionResult, ToolsConfig};
 use futures::StreamExt;
 
 #[tokio::main]
-async fn main() -> claude_agent_sdk::Result<()> {
+async fn main() -> clawde::Result<()> {
     let options = ClaudeAgentOptions {
         tools: Some(ToolsConfig::List(vec!["Bash".into(), "Read".into()])),
         can_use_tool: Some(Arc::new(|tool_name, input, context| {

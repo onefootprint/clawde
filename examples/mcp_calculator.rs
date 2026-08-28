@@ -5,15 +5,13 @@
 
 use std::collections::HashMap;
 
-use claude_agent_sdk::mcp::{create_sdk_mcp_server, tool, CallToolResult};
-use claude_agent_sdk::{
-    query, ClaudeAgentOptions, ContentBlock, McpServerConfig, McpServers, Message,
-};
+use clawde::mcp::{create_sdk_mcp_server, tool, CallToolResult};
+use clawde::{query, ClaudeAgentOptions, ContentBlock, McpServerConfig, McpServers, Message};
 use futures::StreamExt;
 use serde_json::json;
 
 #[tokio::main]
-async fn main() -> claude_agent_sdk::Result<()> {
+async fn main() -> clawde::Result<()> {
     let number_schema = json!({"a": {"type": "number"}, "b": {"type": "number"}});
 
     let add = tool(

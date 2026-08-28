@@ -43,10 +43,10 @@ struct ClientConnection {
 /// # Example
 ///
 /// ```no_run
-/// use claude_agent_sdk::{ClaudeAgentOptions, ClaudeSdkClient, Message};
+/// use clawde::{ClaudeAgentOptions, ClaudeSdkClient, Message};
 /// use futures::StreamExt;
 ///
-/// # async fn example() -> claude_agent_sdk::Result<()> {
+/// # async fn example() -> clawde::Result<()> {
 /// let mut client = ClaudeSdkClient::new(ClaudeAgentOptions::default());
 /// client.connect(None).await?;
 /// client.query("What's the capital of France?", None).await?;
@@ -244,8 +244,8 @@ impl ClaudeSdkClient {
     /// Change permission mode during the conversation.
     ///
     /// ```no_run
-    /// # use claude_agent_sdk::{ClaudeSdkClient, PermissionMode};
-    /// # async fn example(client: &ClaudeSdkClient) -> claude_agent_sdk::Result<()> {
+    /// # use clawde::{ClaudeSdkClient, PermissionMode};
+    /// # async fn example(client: &ClaudeSdkClient) -> clawde::Result<()> {
     /// // Review mode done, switch to auto-accept edits:
     /// client.set_permission_mode(PermissionMode::AcceptEdits).await?;
     /// # Ok(())

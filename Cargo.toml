@@ -1,8 +1,8 @@
 [package]
-name = "claude_agent_sdk"
+name = "clawde"
 version = "0.1.0"
 edition = "2021"
-description = "Rust port of the Claude Agent SDK: programmatic access to the Claude Code CLI"
+description = "Clawde: a Rust port of the Claude Agent SDK — programmatic access to the Claude Code CLI"
 license = "MIT"
 repository = "https://github.com/anthropics/claude-agent-sdk-python"
 

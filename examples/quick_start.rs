@@ -2,10 +2,10 @@
 //!
 //! Run with: `cargo run --example quick_start`
 
-use claude_agent_sdk::{query, ClaudeAgentOptions, ContentBlock, Message, ToolsConfig};
+use clawde::{query, ClaudeAgentOptions, ContentBlock, Message, ToolsConfig};
 use futures::StreamExt;
 
-async fn basic_example() -> claude_agent_sdk::Result<()> {
+async fn basic_example() -> clawde::Result<()> {
     println!("=== Basic Example ===");
     let mut messages = query("What is 2 + 2?", ClaudeAgentOptions::default()).await?;
     while let Some(message) = messages.next().await {
@@ -21,7 +21,7 @@ async fn basic_example() -> claude_agent_sdk::Result<()> {
     Ok(())
 }
 
-async fn with_options_example() -> claude_agent_sdk::Result<()> {
+async fn with_options_example() -> clawde::Result<()> {
     println!("=== With Options Example ===");
     let options = ClaudeAgentOptions {
         system_prompt: Some("You are a helpful assistant that explains things simply.".into()),
@@ -42,7 +42,7 @@ async fn with_options_example() -> claude_agent_sdk::Result<()> {
     Ok(())
 }
 
-async fn with_tools_example() -> claude_agent_sdk::Result<()> {
+async fn with_tools_example() -> clawde::Result<()> {
     println!("=== With Tools Example ===");
     let options = ClaudeAgentOptions {
         tools: Some(ToolsConfig::List(vec!["Read".into(), "Write".into()])),
@@ -78,7 +78,7 @@ async fn with_tools_example() -> claude_agent_sdk::Result<()> {
 }
 
 #[tokio::main]
-async fn main() -> claude_agent_sdk::Result<()> {
+async fn main() -> clawde::Result<()> {
     basic_example().await?;
     with_options_example().await?;
     with_tools_example().await?;

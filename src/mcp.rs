@@ -219,7 +219,7 @@ impl std::fmt::Debug for SdkMcpTool {
 /// # Example
 ///
 /// ```no_run
-/// use claude_agent_sdk::mcp::{tool, CallToolResult};
+/// use clawde::mcp::{tool, CallToolResult};
 /// use serde_json::json;
 ///
 /// let greet = tool(
@@ -337,7 +337,7 @@ impl ToolsMcpServer {
             let schema = build_input_schema(&tool_def.input_schema);
             let validator = jsonschema::validator_for(&schema).map_err(|e| {
                 tracing::warn!(
-                    target: "claude_agent_sdk",
+                    target: "clawde",
                     "invalid input schema for tool {:?}: {e}; calls to it will fail",
                     tool_def.name
                 );
@@ -416,7 +416,7 @@ impl ToolsMcpServer {
                         content.push(json!({"type": "text", "text": text}));
                     } else {
                         tracing::warn!(
-                            target: "claude_agent_sdk",
+                            target: "clawde",
                             "Binary embedded resource cannot be converted to text, skipping"
                         );
                     }
@@ -535,8 +535,8 @@ impl SdkMcpServer for ToolsMcpServer {
 ///
 /// ```no_run
 /// use std::collections::HashMap;
-/// use claude_agent_sdk::mcp::{create_sdk_mcp_server, tool, CallToolResult};
-/// use claude_agent_sdk::{ClaudeAgentOptions, McpServerConfig, McpServers};
+/// use clawde::mcp::{create_sdk_mcp_server, tool, CallToolResult};
+/// use clawde::{ClaudeAgentOptions, McpServerConfig, McpServers};
 /// use serde_json::json;
 ///
 /// let add = tool(

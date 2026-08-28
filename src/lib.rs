@@ -1,4 +1,4 @@
-//! # Claude Agent SDK for Rust
+//! # Clawde — the Claude Agent SDK for Rust
 //!
 //! A Rust port of the [Claude Agent SDK for Python][python-sdk]:
 //! programmatic access to the Claude Code CLI, with a 1:1 public interface
@@ -9,10 +9,10 @@
 //! ## One-shot queries
 //!
 //! ```no_run
-//! use claude_agent_sdk::{query, ClaudeAgentOptions, ContentBlock, Message};
+//! use clawde::{query, ClaudeAgentOptions, ContentBlock, Message};
 //! use futures::StreamExt;
 //!
-//! # async fn example() -> claude_agent_sdk::Result<()> {
+//! # async fn example() -> clawde::Result<()> {
 //! let mut messages = query("What is 2 + 2?", ClaudeAgentOptions::default()).await?;
 //! while let Some(message) = messages.next().await {
 //!     if let Message::Assistant(assistant) = message? {

@@ -2,11 +2,11 @@
 //!
 //! Run with: `cargo run --example smoke`
 
-use claude_agent_sdk::{query, ClaudeAgentOptions, ContentBlock, Message, ToolsConfig};
+use clawde::{query, ClaudeAgentOptions, ContentBlock, Message, ToolsConfig};
 use futures::StreamExt;
 
 #[tokio::main]
-async fn main() -> claude_agent_sdk::Result<()> {
+async fn main() -> clawde::Result<()> {
     let options = ClaudeAgentOptions {
         tools: Some(ToolsConfig::List(vec![])),
         max_turns: Some(1),

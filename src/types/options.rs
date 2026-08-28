@@ -467,7 +467,7 @@ pub type StderrCallback = Arc<dyn Fn(&str) + Send + Sync>;
 /// Construct with struct-update syntax over [`Default`]:
 ///
 /// ```no_run
-/// use claude_agent_sdk::ClaudeAgentOptions;
+/// use clawde::ClaudeAgentOptions;
 ///
 /// let options = ClaudeAgentOptions {
 ///     model: Some("claude-sonnet-4-5".into()),
@@ -852,7 +852,7 @@ fn warn_if_can_use_tool_shadowed(options: &ClaudeAgentOptions) {
     if let Some(message) =
         get_can_use_tool_shadowed_warning(options.permission_mode, &allowed_tools)
     {
-        tracing::warn!(target: "claude_agent_sdk", "{message}");
+        tracing::warn!(target: "clawde", "{message}");
     }
 }
 

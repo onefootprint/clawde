@@ -6,9 +6,7 @@
 use std::io::Write;
 use std::path::PathBuf;
 
-use claude_agent_sdk::{
-    query, ClaudeAgentOptions, ClaudeSdkClient, ClaudeSdkError, ContentBlock, Message,
-};
+use clawde::{query, ClaudeAgentOptions, ClaudeSdkClient, ClaudeSdkError, ContentBlock, Message};
 use futures::StreamExt;
 
 /// Write an executable fake CLI script into a temp dir and return its path

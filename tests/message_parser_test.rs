@@ -1,7 +1,7 @@
 //! Tests for message parsing, ported from the Python SDK's
 //! `test_message_parser.py`.
 
-use claude_agent_sdk::{
+use clawde::{
     parse_message, ClaudeSdkError, ContentBlock, Message, MessageOriginKind, ServerToolName,
     TaskNotificationStatus, TaskUpdatedStatus, UserContent,
 };
@@ -229,12 +229,12 @@ fn parses_stream_rate_limit_and_reset_messages() {
     };
     assert_eq!(
         event.rate_limit_info.status,
-        claude_agent_sdk::RateLimitStatus::AllowedWarning
+        clawde::RateLimitStatus::AllowedWarning
     );
     assert_eq!(event.rate_limit_info.resets_at, Some(123));
     assert_eq!(
         event.rate_limit_info.rate_limit_type,
-        Some(claude_agent_sdk::RateLimitType::FiveHour)
+        Some(clawde::RateLimitType::FiveHour)
     );
 
     let reset = json!({

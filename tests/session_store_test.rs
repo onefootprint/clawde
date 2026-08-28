@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use claude_agent_sdk::{
+use clawde::{
     delete_session_via_store, fold_session_summary, fork_session_via_store,
     get_session_info_from_store, get_session_messages_from_store, get_subagent_messages_from_store,
     list_sessions_from_store, list_subagents_from_store, project_key_for_directory,
@@ -69,7 +69,7 @@ async fn append_load_round_trip_and_listing() {
         .unwrap();
     assert_eq!(store.list_sessions("proj").await.unwrap().len(), 1);
     let subkeys = store
-        .list_subkeys(&claude_agent_sdk::SessionListSubkeysKey {
+        .list_subkeys(&clawde::SessionListSubkeysKey {
             project_key: "proj".to_string(),
             session_id: SESSION_ID.to_string(),
         })

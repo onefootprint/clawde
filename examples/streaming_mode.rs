@@ -3,13 +3,13 @@
 //!
 //! Run with: `cargo run --example streaming_mode`
 
-use claude_agent_sdk::{ClaudeAgentOptions, ClaudeSdkClient, ContentBlock, Message};
+use clawde::{ClaudeAgentOptions, ClaudeSdkClient, ContentBlock, Message};
 use futures::StreamExt;
 
 fn display(message: &Message) {
     match message {
         Message::User(user) => {
-            if let claude_agent_sdk::UserContent::Blocks(blocks) = &user.content {
+            if let clawde::UserContent::Blocks(blocks) = &user.content {
                 for block in blocks {
                     if let ContentBlock::ToolResult(result) = block {
                         println!("Tool result for {}", result.tool_use_id);
@@ -39,7 +39,7 @@ fn display(message: &Message) {
 }
 
 #[tokio::main]
-async fn main() -> claude_agent_sdk::Result<()> {
+async fn main() -> clawde::Result<()> {
     let mut client = ClaudeSdkClient::new(ClaudeAgentOptions::default());
     client.connect(None).await?;
 

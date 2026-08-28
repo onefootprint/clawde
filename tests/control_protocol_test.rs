@@ -8,8 +8,8 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use claude_agent_sdk::mcp::{create_sdk_mcp_server, tool, CallToolResult};
-use claude_agent_sdk::{
+use clawde::mcp::{create_sdk_mcp_server, tool, CallToolResult};
+use clawde::{
     query, ClaudeAgentOptions, HookEvent, HookInput, HookJsonOutput, HookMatcher,
     HookSpecificOutput, McpServerConfig, McpServers, Message, PermissionDecision, PermissionResult,
     PermissionResultAllow, PermissionUpdate, SyncHookJsonOutput,
@@ -136,7 +136,7 @@ cat > /dev/null
 
     let commands: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
     let sink = commands.clone();
-    let hook: claude_agent_sdk::HookCallback = Arc::new(move |input, tool_use_id, _context| {
+    let hook: clawde::HookCallback = Arc::new(move |input, tool_use_id, _context| {
         assert_eq!(tool_use_id.as_deref(), Some("tu1"));
         if let HookInput::PreToolUse(pre) = &input {
             sink.lock().unwrap().push(
@@ -195,16 +195,16 @@ async fn permission_suggestions_round_trip_shapes() {
     assert_eq!(serde_json::to_value(&parsed).unwrap(), wire);
 }
 
-/// An [`claude_agent_sdk::SdkMcpServer`] whose close() panics, to prove
+/// An [`clawde::SdkMcpServer`] whose close() panics, to prove
 /// shutdown survives user-code panics.
 struct PanickyServer;
 
 #[async_trait::async_trait]
-impl claude_agent_sdk::SdkMcpServer for PanickyServer {
+impl clawde::SdkMcpServer for PanickyServer {
     async fn handle_message(
         &self,
         _message: serde_json::Value,
-    ) -> claude_agent_sdk::Result<Option<serde_json::Value>> {
+    ) -> clawde::Result<Option<serde_json::Value>> {
         Ok(None)
     }
 
@@ -236,7 +236,7 @@ cat > /dev/null
         )]),
         mcp_servers: McpServers::Map(HashMap::from([(
             "panicky".to_string(),
-            McpServerConfig::Sdk(claude_agent_sdk::McpSdkServerConfig {
+            McpServerConfig::Sdk(clawde::McpSdkServerConfig {
                 name: "panicky".to_string(),
                 instance: Arc::new(PanickyServer),
             }),
@@ -244,7 +244,7 @@ cat > /dev/null
         ..Default::default()
     };
 
-    let mut client = claude_agent_sdk::ClaudeSdkClient::new(options);
+    let mut client = clawde::ClaudeSdkClient::new(options);
     client.connect(None).await.expect("connect");
 
     let mut pid = None;

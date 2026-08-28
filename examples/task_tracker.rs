@@ -18,8 +18,8 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use claude_agent_sdk::mcp::{create_sdk_mcp_server, tool, CallToolResult};
-use claude_agent_sdk::{
+use clawde::mcp::{create_sdk_mcp_server, tool, CallToolResult};
+use clawde::{
     ClaudeAgentOptions, ClaudeSdkClient, ContentBlock, HookCallback, HookEvent, HookInput,
     HookJsonOutput, HookMatcher, HookSpecificOutput, McpServerConfig, McpServers, Message,
     PermissionDecision, PermissionResult, QueryPrompt, SyncHookJsonOutput, ToolsConfig,
@@ -88,7 +88,7 @@ impl TaskStore {
 /// Build the in-process MCP server backed by `store`. The handlers close
 /// over the same `Arc` the main program reads at the end — tool calls made
 /// by Claude mutate this process's state directly.
-fn tracker_server(store: Arc<TaskStore>) -> claude_agent_sdk::McpSdkServerConfig {
+fn tracker_server(store: Arc<TaskStore>) -> clawde::McpSdkServerConfig {
     let add_store = store.clone();
     let add_task = tool(
         "add_task",
@@ -188,7 +188,7 @@ fn print_message(message: &Message) {
     }
 }
 
-async fn run_turn(client: &ClaudeSdkClient, prompt: &str) -> claude_agent_sdk::Result<()> {
+async fn run_turn(client: &ClaudeSdkClient, prompt: &str) -> clawde::Result<()> {
     println!("\nuser: {prompt}");
     client.query(QueryPrompt::from(prompt), None).await?;
     let mut responses = client.receive_response();
@@ -199,7 +199,7 @@ async fn run_turn(client: &ClaudeSdkClient, prompt: &str) -> claude_agent_sdk::R
 }
 
 #[tokio::main]
-async fn main() -> claude_agent_sdk::Result<()> {
+async fn main() -> clawde::Result<()> {
     let store = Arc::new(TaskStore::default());
 
     let options = ClaudeAgentOptions {

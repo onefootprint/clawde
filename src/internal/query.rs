@@ -205,7 +205,7 @@ impl Query {
         });
         if let Err(e) = self.message_tx.try_send(QueryMessage::Data(msg)) {
             tracing::warn!(
-                target: "claude_agent_sdk",
+                target: "clawde",
                 "Dropping mirror_error message (buffer full): {e}"
             );
         }
@@ -330,7 +330,7 @@ impl Query {
                                 error_result_text(&result_data)
                             );
                             tracing::debug!(
-                                target: "claude_agent_sdk",
+                                target: "clawde",
                                 "Replacing process error (exit code {exit_code:?}) with ResultError"
                             );
                             ClaudeSdkError::ResultError {
@@ -341,7 +341,7 @@ impl Query {
                         }
                         _ => {
                             tracing::error!(
-                                target: "claude_agent_sdk",
+                                target: "clawde",
                                 "Fatal error in message reader: {e}"
                             );
                             e
@@ -440,7 +440,7 @@ impl Query {
                     // parent for a follow-up turn, so a later result frame
                     // arrives with no tasks in flight and closes stdin then.
                     tracing::debug!(
-                        target: "claude_agent_sdk",
+                        target: "clawde",
                         "Result received with {inflight} task(s) in flight; keeping stdin open"
                     );
                 } else {
@@ -971,7 +971,7 @@ impl Query {
     pub(crate) async fn wait_for_result_and_end_input(&self) {
         if self.has_bidirectional_needs() {
             tracing::debug!(
-                target: "claude_agent_sdk",
+                target: "clawde",
                 "Waiting for a run-ending result before closing stdin \
                  (sdk_mcp_servers={}, has_hooks={}, has_can_use_tool={})",
                 self.sdk_mcp_servers.len(),
@@ -1002,7 +1002,7 @@ impl Query {
                 // never finish — fall through and close it like a normal end
                 // of input.
                 tracing::error!(
-                    target: "claude_agent_sdk",
+                    target: "clawde",
                     "Prompt stream failed; closing stdin: {e}"
                 );
                 break;
@@ -1060,7 +1060,7 @@ impl Query {
                 Ok(Ok(())) => {}
                 Ok(Err(_timed_out)) => {
                     tracing::warn!(
-                        target: "claude_agent_sdk",
+                        target: "clawde",
                         "SDK MCP server {name:?} did not stop within {}s of being closed; \
                          no longer waiting for it",
                         SDK_MCP_SHUTDOWN_GRACE.as_secs(),
@@ -1068,7 +1068,7 @@ impl Query {
                 }
                 Err(_panicked) => {
                     tracing::warn!(
-                        target: "claude_agent_sdk",
+                        target: "clawde",
                         "SDK MCP server {name:?} panicked in close(); continuing shutdown",
                     );
                 }

@@ -1709,7 +1709,7 @@ pub async fn list_sessions_from_store(
                     (listing, known)
                 } else {
                     tracing::debug!(
-                        target: "claude_agent_sdk",
+                        target: "clawde",
                         "list_session_summaries without list_sessions: gap-fill skipped; \
                          sessions lacking a sidecar will be omitted"
                     );

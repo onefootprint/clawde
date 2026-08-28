@@ -515,7 +515,7 @@ fn read_if_present(src: &Path) -> Option<Vec<u8>> {
             Ok(content) => Some(content),
             Err(e) => {
                 tracing::warn!(
-                    target: "claude_agent_sdk",
+                    target: "clawde",
                     "[SessionStore] resume: skipping {} ({e})",
                     src.display()
                 );
@@ -524,7 +524,7 @@ fn read_if_present(src: &Path) -> Option<Vec<u8>> {
         },
         Ok(_) => {
             tracing::warn!(
-                target: "claude_agent_sdk",
+                target: "clawde",
                 "[SessionStore] resume: skipping {} (not a regular file)",
                 src.display()
             );
@@ -533,7 +533,7 @@ fn read_if_present(src: &Path) -> Option<Vec<u8>> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
         Err(e) => {
             tracing::warn!(
-                target: "claude_agent_sdk",
+                target: "clawde",
                 "[SessionStore] resume: skipping {} ({e})",
                 src.display()
             );
@@ -559,7 +559,7 @@ fn copy_if_present(src: &Path, dst: &Path, transform: Option<&dyn Fn(Vec<u8>) ->
             // misparse.
             let _ = std::fs::remove_file(dst);
             tracing::warn!(
-                target: "claude_agent_sdk",
+                target: "clawde",
                 "[SessionStore] resume: skipping {} ({e})",
                 src.display()
             );
@@ -619,7 +619,7 @@ async fn materialize_subkeys(
         // session directory.
         if !is_safe_subpath(&subpath, &session_dir) {
             tracing::warn!(
-                target: "claude_agent_sdk",
+                target: "clawde",
                 "[SessionStore] skipping unsafe subpath from list_subkeys: {subpath:?}"
             );
             continue;

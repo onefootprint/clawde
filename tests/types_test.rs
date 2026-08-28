@@ -1,7 +1,7 @@
 //! Wire-format serialization tests for the SDK's typed values, ported from
 //! the Python SDK's `test_types.py` / control-protocol expectations.
 
-use claude_agent_sdk::{
+use clawde::{
     AgentDefinition, AgentEffort, AsyncHookJsonOutput, ClaudeAgentOptions, EffortLevel,
     HookJsonOutput, HookSpecificOutput, PermissionBehavior, PermissionDecision, PermissionMode,
     PermissionRuleValue, PermissionUpdate, PermissionUpdateDestination, SessionStoreFlushMode,
@@ -192,7 +192,7 @@ fn options_defaults_match_python() {
 
 #[test]
 fn terminal_task_statuses_span_both_vocabularies() {
-    use claude_agent_sdk::{is_terminal_task_status, TERMINAL_TASK_STATUSES};
+    use clawde::{is_terminal_task_status, TERMINAL_TASK_STATUSES};
     assert_eq!(
         TERMINAL_TASK_STATUSES,
         ["completed", "failed", "stopped", "killed"]

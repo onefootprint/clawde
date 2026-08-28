@@ -1,13 +1,13 @@
 //! Tests for the in-process SDK MCP server, ported from the Python SDK's
 //! `test_sdk_mcp_integration.py` behaviors.
 
-use claude_agent_sdk::mcp::{
+use clawde::mcp::{
     create_sdk_mcp_server, tool, CallToolResult, ToolAnnotations, ToolResultContent,
 };
-use claude_agent_sdk::ClaudeSdkError;
+use clawde::ClaudeSdkError;
 use serde_json::{json, Value};
 
-fn calculator() -> claude_agent_sdk::McpSdkServerConfig {
+fn calculator() -> clawde::McpSdkServerConfig {
     let add = tool(
         "add",
         "Add two numbers",
@@ -42,7 +42,7 @@ fn calculator() -> claude_agent_sdk::McpSdkServerConfig {
     create_sdk_mcp_server("calculator", "2.0.0", vec![add, fail, annotated])
 }
 
-async fn call(server: &claude_agent_sdk::McpSdkServerConfig, message: Value) -> Option<Value> {
+async fn call(server: &clawde::McpSdkServerConfig, message: Value) -> Option<Value> {
     server.instance.handle_message(message).await.unwrap()
 }
 

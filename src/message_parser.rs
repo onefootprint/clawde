@@ -443,7 +443,7 @@ pub fn parse_message(data: &Value) -> Result<Option<Message>> {
         // Forward-compatible: skip unrecognized message types so newer CLI
         // versions don't crash older SDK versions.
         other => {
-            tracing::debug!(target: "claude_agent_sdk", "Skipping unknown message type: {other}");
+            tracing::debug!(target: "clawde", "Skipping unknown message type: {other}");
             Ok(None)
         }
     }

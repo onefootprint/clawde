@@ -1,4 +1,4 @@
-# Claude Agent SDK for Rust
+# Clawde
 
 A Rust port of the [Claude Agent SDK for Python](https://github.com/anthropics/claude-agent-sdk-python): programmatic access to the Claude Code CLI with a 1:1 public interface, expressed idiomatically in Rust on top of tokio.
 
@@ -6,7 +6,7 @@ A Rust port of the [Claude Agent SDK for Python](https://github.com/anthropics/c
 
 ```toml
 [dependencies]
-claude_agent_sdk = { path = "." }
+clawde = { path = "." }
 futures = "0.3"
 tokio = { version = "1", features = ["full"] }
 ```
@@ -16,11 +16,11 @@ tokio = { version = "1", features = ["full"] }
 ## Quick start
 
 ```rust
-use claude_agent_sdk::{query, ClaudeAgentOptions, ContentBlock, Message};
+use clawde::{query, ClaudeAgentOptions, ContentBlock, Message};
 use futures::StreamExt;
 
 #[tokio::main]
-async fn main() -> claude_agent_sdk::Result<()> {
+async fn main() -> clawde::Result<()> {
     let mut messages = query("What is 2 + 2?", ClaudeAgentOptions::default()).await?;
     while let Some(message) = messages.next().await {
         if let Message::Assistant(assistant) = message? {
