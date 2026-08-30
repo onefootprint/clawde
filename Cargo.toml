@@ -36,7 +36,7 @@ tokio = { version = "1", features = [
 tracing = "0.1"
 unicode-normalization = "0.1"
 uuid = { version = "1", features = ["v4"] }
-which = "7"
+which = "8"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }
