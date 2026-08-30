@@ -1,0 +1,193 @@
+name: Upstream watch
+
+on:
+  schedule:
+    - cron: "23 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      force_audit:
+        description: Run the parity audit even if no upstream drift is detected
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+env:
+  UPSTREAM_REPO: https://github.com/anthropics/claude-agent-sdk-python
+  CLI_PACKAGE: "@anthropic-ai/claude-code"
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      drift: ${{ steps.compare.outputs.drift }}
+      python_changed: ${{ steps.compare.outputs.python_changed }}
+      cli_changed: ${{ steps.compare.outputs.cli_changed }}
+      python_old: ${{ steps.compare.outputs.python_old }}
+      python_new: ${{ steps.compare.outputs.python_new }}
+      cli_old: ${{ steps.compare.outputs.cli_old }}
+      cli_new: ${{ steps.compare.outputs.cli_new }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: compare
+        env:
+          FORCE: ${{ inputs.force_audit == true }}
+        run: |
+          set -euo pipefail
+          python_old=$(jq -r .python_sdk_tag .github/upstream/state.json)
+          cli_old=$(jq -r .cli_version .github/upstream/state.json)
+          python_new=$(git ls-remote --tags --sort=-v:refname "$UPSTREAM_REPO" 'refs/tags/v*' \
+            | grep -v '\^{}' | sed 's#.*refs/tags/##' | awk 'NR==1')
+          cli_new=$(npm view "$CLI_PACKAGE" version)
+          python_changed=$([ "$python_old" != "$python_new" ] && echo true || echo false)
+          cli_changed=$([ "$cli_old" != "$cli_new" ] && echo true || echo false)
+          if [ "$FORCE" = "true" ]; then python_changed=true; cli_changed=true; fi
+          drift=$([ "$python_changed" = true ] || [ "$cli_changed" = true ] && echo true || echo false)
+          {
+            echo "python_old=$python_old"
+            echo "python_new=$python_new"
+            echo "cli_old=$cli_old"
+            echo "cli_new=$cli_new"
+            echo "python_changed=$python_changed"
+            echo "cli_changed=$cli_changed"
+            echo "drift=$drift"
+          } >> "$GITHUB_OUTPUT"
+          echo "python: $python_old -> $python_new ($python_changed), cli: $cli_old -> $cli_new ($cli_changed)"
+
+  cli-test:
+    name: Test against new CLI ${{ needs.detect.outputs.cli_new }}
+    needs: detect
+    if: needs.detect.outputs.cli_changed == 'true'
+    runs-on: ubuntu-latest
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install the new Claude Code CLI
+        run: npm install -g "$CLI_PACKAGE@${{ needs.detect.outputs.cli_new }}"
+      - run: cargo test --all-targets
+      - name: Live smoke test (only if an API key is configured)
+        if: env.ANTHROPIC_API_KEY != ''
+        run: cargo run --example smoke
+      - name: File an issue on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh label create upstream-watch --color D93F0B --force
+          gh issue create \
+            --title "Tests fail against Claude Code CLI ${{ needs.detect.outputs.cli_new }}" \
+            --label upstream-watch \
+            --body "The [upstream-watch run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) failed while testing against CLI ${{ needs.detect.outputs.cli_new }} (previously ${{ needs.detect.outputs.cli_old }})."
+
+  parity-audit:
+    name: Parity audit ${{ needs.detect.outputs.python_old }} → ${{ needs.detect.outputs.python_new }}
+    needs: detect
+    if: needs.detect.outputs.python_changed == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      verdict: ${{ steps.publish.outputs.verdict }}
+      issue_url: ${{ steps.publish.outputs.issue_url }}
+    env:
+      OLD_TAG: ${{ needs.detect.outputs.python_old }}
+      NEW_TAG: ${{ needs.detect.outputs.python_new }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Clone upstream and generate the API diff
+        run: |
+          set -euo pipefail
+          git clone --quiet "$UPSTREAM_REPO" "$RUNNER_TEMP/upstream"
+          git -C "$RUNNER_TEMP/upstream" checkout --quiet "$NEW_TAG"
+          git -C "$RUNNER_TEMP/upstream" diff "$OLD_TAG".."$NEW_TAG" -- src/ CHANGELOG.md \
+            > "$RUNNER_TEMP/upstream.diff"
+          wc -l "$RUNNER_TEMP/upstream.diff"
+      - name: Run the parity audit
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            Read the file .github/upstream/parity-prompt.md and follow its instructions exactly.
+            The values it refers to as env vars are:
+            - OLD_TAG: ${{ needs.detect.outputs.python_old }}
+            - NEW_TAG: ${{ needs.detect.outputs.python_new }}
+            - UPSTREAM_DIR: ${{ runner.temp }}/upstream
+            - UPSTREAM_DIFF: ${{ runner.temp }}/upstream.diff
+            - REPORT_PATH: ${{ runner.temp }}/parity-report.md
+          claude_args: --allowedTools "Read,Grep,Glob,Write,Bash(git:*)" --max-turns 80
+      - name: Upload the report
+        uses: actions/upload-artifact@v4
+        with:
+          name: parity-report
+          path: ${{ runner.temp }}/parity-report.md
+      - name: File an issue when gaps are found
+        id: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          report="$RUNNER_TEMP/parity-report.md"
+          if [ ! -s "$report" ]; then
+            echo "The audit did not produce a report" >&2
+            exit 1
+          fi
+          verdict=$(head -1 "$report" | sed 's/^verdict: *//')
+          case "$verdict" in gaps|clean) ;; *) echo "Unparseable verdict: $verdict" >&2; exit 1;; esac
+          echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
+          if [ "$verdict" = "gaps" ]; then
+            gh label create upstream-parity --color FBCA04 --force
+            issue_url=$(gh issue create \
+              --title "Upstream parity: $OLD_TAG → $NEW_TAG" \
+              --label upstream-parity \
+              --body-file "$report")
+            echo "issue_url=$issue_url" >> "$GITHUB_OUTPUT"
+          fi
+
+  propose-bump:
+    name: Open state-bump PR
+    needs: [detect, cli-test, parity-audit]
+    if: >
+      always() && needs.detect.outputs.drift == 'true' &&
+      needs.cli-test.result != 'failure' && needs.cli-test.result != 'cancelled' &&
+      needs.parity-audit.result != 'failure' && needs.parity-audit.result != 'cancelled'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Update state.json
+        run: |
+          jq '.python_sdk_tag = "${{ needs.detect.outputs.python_new }}" | .cli_version = "${{ needs.detect.outputs.cli_new }}"' \
+            .github/upstream/state.json > state.tmp
+          mv state.tmp .github/upstream/state.json
+      - name: Compose PR body
+        run: |
+          {
+            echo "Automated upstream sync."
+            echo
+            if [ "${{ needs.detect.outputs.python_changed }}" = "true" ]; then
+              echo "- Python SDK: \`${{ needs.detect.outputs.python_old }}\` → \`${{ needs.detect.outputs.python_new }}\` — parity verdict: **${{ needs.parity-audit.outputs.verdict }}**"
+              if [ -n "${{ needs.parity-audit.outputs.issue_url }}" ]; then
+                echo "  - Gap report: ${{ needs.parity-audit.outputs.issue_url }}"
+              fi
+            fi
+            if [ "${{ needs.detect.outputs.cli_changed }}" = "true" ]; then
+              echo "- Claude Code CLI: \`${{ needs.detect.outputs.cli_old }}\` → \`${{ needs.detect.outputs.cli_new }}\` — test suite passed against the new CLI"
+            fi
+            echo
+            echo "Full run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          } > pr-body.md
+      # Note: PRs opened with the default GITHUB_TOKEN do not trigger the CI
+      # workflow. Configure a fine-grained PAT as UPSTREAM_WATCH_TOKEN if you
+      # want CI to run on these PRs automatically.
+      - uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.UPSTREAM_WATCH_TOKEN || github.token }}
+          branch: upstream-sync/${{ needs.detect.outputs.python_new }}-cli-${{ needs.detect.outputs.cli_new }}
+          delete-branch: true
+          commit-message: "chore: bump audited upstream to ${{ needs.detect.outputs.python_new }} / CLI ${{ needs.detect.outputs.cli_new }}"
+          title: "Upstream sync: Python SDK ${{ needs.detect.outputs.python_new }}, CLI ${{ needs.detect.outputs.cli_new }}"
+          body-path: pr-body.md
+          add-paths: .github/upstream/state.json

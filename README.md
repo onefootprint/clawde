@@ -1,12 +1,21 @@
 # Clawde
 
+[![CI](https://github.com/onefootprint/clawde/actions/workflows/ci.yml/badge.svg)](https://github.com/onefootprint/clawde/actions/workflows/ci.yml)
+[![crates.io](https://img.shields.io/crates/v/clawde.svg)](https://crates.io/crates/clawde)
+[![docs.rs](https://img.shields.io/docsrs/clawde)](https://docs.rs/clawde)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 A Rust port of the [Claude Agent SDK for Python](https://github.com/anthropics/claude-agent-sdk-python): programmatic access to the Claude Code CLI with a 1:1 public interface, expressed idiomatically in Rust on top of tokio.
+
+> **Note:** Clawde is an unofficial community port and is not affiliated with or
+> endorsed by Anthropic. For the official SDKs, see the
+> [Claude Agent SDK docs](https://code.claude.com/docs/en/agent-sdk).
 
 ## Installation
 
 ```toml
 [dependencies]
-clawde = { path = "." }
+clawde = "0.1"
 futures = "0.3"
 tokio = { version = "1", features = ["full"] }
 ```
@@ -37,28 +46,24 @@ async fn main() -> clawde::Result<()> {
 
 See `examples/` for interactive clients (`streaming_mode`), in-process MCP servers (`mcp_calculator`), permission callbacks (`tool_permission_callback`), and hooks (`hooks`).
 
-## API mapping (Python → Rust)
+## Features
 
-| Python | Rust |
-|---|---|
-| `query(prompt=..., options=...)` | `query(prompt, options)` → `MessageStream` (a `Stream<Item = Result<Message>>`) |
-| `query(..., transport=...)` | `query_with_transport(prompt, options, Some(transport))` |
-| `ClaudeSDKClient` | `ClaudeSdkClient` (`connect` / `query` / `receive_messages` / `receive_response` / `interrupt` / `set_permission_mode` / `set_model` / `rewind_files` / `reconnect_mcp_server` / `toggle_mcp_server` / `stop_task` / `get_mcp_status` / `get_context_usage` / `get_server_info` / `disconnect`) |
-| `ClaudeAgentOptions(...)` | `ClaudeAgentOptions { .., ..Default::default() }` |
-| `@tool(...)` decorator | `mcp::tool(name, description, schema, handler)` |
-| `create_sdk_mcp_server(...)` | `mcp::create_sdk_mcp_server(name, version, tools)` |
-| bring-your-own `mcp.server.Server` | implement the `SdkMcpServer` trait (JSON-RPC in/out) |
-| `Message` union / `SystemMessage` subclasses | `Message` enum (task/mirror/hook messages are sibling variants) |
-| `PermissionUpdate` dataclass + `to_dict`/`from_dict` | `PermissionUpdate` enum with serde matching the wire format |
-| Hook TypedDicts (`async_`, `continue_`) | typed structs/enums; serde renames to the CLI names (`async`, `continue`) |
-| `can_use_tool` / `HookCallback` callables | `CanUseTool` / `HookCallback` (`Arc<dyn Fn(..) -> BoxFuture<..>>`) |
-| exceptions (`CLINotFoundError`, `ProcessError`, `ResultError`, ...) | `ClaudeSdkError` enum variants (`CliNotFound`, `Process`, `ResultError`, ...) with accessor methods (`subtype()`, `terminal_reason()`, ...) |
-| `Transport` ABC | `Transport` trait (`async_trait`) |
-| `SessionStore` Protocol (optional methods probed at runtime) | `SessionStore` trait; optional methods default to `StoreUnimplemented` and are gated by `implements(SessionStoreMethod)` |
-| `list_sessions` / `get_session_info` / `get_session_messages` / `list_subagents` / `get_subagent_messages` (+ `_from_store` variants) | same names; filesystem variants are sync, store variants async |
-| `rename_session` / `tag_session` / `delete_session` / `fork_session` (+ `_via_store`) | same names |
-| `import_session_to_store`, `fold_session_summary`, `project_key_for_directory`, `InMemorySessionStore` | same names |
-| `CanUseToolShadowedWarning` (Python warning) | `tracing::warn!` on connect |
+- **One-shot queries** — `query()` returns a `Stream` of typed `Message`s.
+- **Interactive client** — `ClaudeSdkClient` for multi-turn conversations:
+  interrupts, permission-mode and model switching, file rewind, MCP server
+  management, context usage.
+- **In-process MCP servers** — define tools as Rust closures with
+  `mcp::tool` / `mcp::create_sdk_mcp_server`, or implement the `SdkMcpServer`
+  trait for full control.
+- **Hooks and permission callbacks** — intercept and gate tool use with
+  `HookCallback` and `can_use_tool`.
+- **Sessions** — list, inspect, fork, rename, tag, delete, and resume
+  sessions, from the filesystem or a custom `SessionStore`.
+
+The API mirrors the Python SDK one-to-one — same names, same options, same
+wire behavior — so the [official docs](https://code.claude.com/docs/en/agent-sdk)
+apply directly; see [docs.rs/clawde](https://docs.rs/clawde) for the Rust
+signatures.
 
 ## Intentional deviations
 
@@ -78,3 +83,21 @@ cargo clippy --all-targets   # lint (zero warnings)
 cargo test                   # unit + integration tests (fake-CLI e2e on Unix)
 cargo +nightly fmt --all     # format
 ```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for ground rules. A weekly
+[upstream-watch workflow](.github/workflows/upstream-watch.yml) tracks new
+releases of the Python SDK and the Claude Code CLI: it tests against the new
+CLI, runs an AI-assisted parity audit of the upstream diff, and files an issue
+plus a version-bump PR when the port needs to catch up.
+
+## Versioning
+
+The crate tracks the Python SDK's API surface; `.github/upstream/state.json`
+records the upstream tag and CLI version the current code was last audited
+against. Until 1.0, minor versions may contain breaking changes.
+
+## License
+
+MIT — see [LICENSE](LICENSE). Portions are derived from
+[claude-agent-sdk-python](https://github.com/anthropics/claude-agent-sdk-python),
+© Anthropic, PBC, also MIT-licensed.

@@ -2,9 +2,15 @@
 name = "clawde"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.85"
 description = "Clawde: a Rust port of the Claude Agent SDK — programmatic access to the Claude Code CLI"
 license = "MIT"
-repository = "https://github.com/anthropics/claude-agent-sdk-python"
+repository = "https://github.com/onefootprint/clawde"
+documentation = "https://docs.rs/clawde"
+readme = "README.md"
+keywords = ["claude", "anthropic", "agent", "sdk", "ai"]
+categories = ["api-bindings", "asynchronous", "development-tools"]
+exclude = [".github/"]
 
 [dependencies]
 async-trait = "0.1"
