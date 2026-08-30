@@ -31,7 +31,7 @@ jobs:
       cli_old: ${{ steps.compare.outputs.cli_old }}
       cli_new: ${{ steps.compare.outputs.cli_new }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: compare
         env:
           FORCE: ${{ inputs.force_audit == true }}
@@ -65,7 +65,7 @@ jobs:
     env:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Install the new Claude Code CLI
@@ -97,7 +97,7 @@ jobs:
       OLD_TAG: ${{ needs.detect.outputs.python_old }}
       NEW_TAG: ${{ needs.detect.outputs.python_new }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Clone upstream and generate the API diff
         run: |
           set -euo pipefail
@@ -156,7 +156,7 @@ jobs:
       needs.parity-audit.result != 'failure' && needs.parity-audit.result != 'cancelled'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Update state.json
         run: |
           jq '.python_sdk_tag = "${{ needs.detect.outputs.python_new }}" | .cli_version = "${{ needs.detect.outputs.cli_new }}"' \
