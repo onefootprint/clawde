@@ -182,7 +182,7 @@ jobs:
       # Note: PRs opened with the default GITHUB_TOKEN do not trigger the CI
       # workflow. Configure a fine-grained PAT as UPSTREAM_WATCH_TOKEN if you
       # want CI to run on these PRs automatically.
-      - uses: peter-evans/create-pull-request@v7
+      - uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.UPSTREAM_WATCH_TOKEN || github.token }}
           branch: upstream-sync/${{ needs.detect.outputs.python_new }}-cli-${{ needs.detect.outputs.cli_new }}
