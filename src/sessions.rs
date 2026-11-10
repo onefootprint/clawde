@@ -980,7 +980,9 @@ pub(crate) fn parse_transcript_entries(content: &str) -> Vec<TranscriptEntry> {
 
 /// Build the conversation chain by finding the leaf and walking `parentUuid`.
 ///
-/// Returns messages in chronological order (root → leaf).
+/// Returns messages in chronological order (root → leaf). Tool calls and
+/// tool results that the walk skipped because the turn ran its tools in
+/// parallel are put back by `recover_orphaned_parallel_tool_results`.
 ///
 /// Note: `logicalParentUuid` (set on compact_boundary entries) is
 /// intentionally NOT followed. Post-compaction, the isCompactSummary message
@@ -993,9 +995,12 @@ pub(crate) fn build_conversation_chain<'a>(entries: &'a [TranscriptEntry]) -> Ve
 
     let mut by_uuid: HashMap<&str, &TranscriptEntry> = HashMap::new();
     let mut entry_index: HashMap<&str, usize> = HashMap::new();
+    let mut file_order: Vec<&str> = Vec::new();
     for (i, entry) in entries.iter().enumerate() {
         if let Some(uuid) = entry_str(entry, "uuid") {
-            by_uuid.insert(uuid, entry);
+            if by_uuid.insert(uuid, entry).is_none() {
+                file_order.push(uuid);
+            }
             entry_index.insert(uuid, i);
         }
     }
@@ -1073,23 +1078,292 @@ pub(crate) fn build_conversation_chain<'a>(entries: &'a [TranscriptEntry]) -> Ve
     };
 
     // Walk from leaf to root via parentUuid.
-    let mut chain: Vec<TranscriptEntry> = Vec::new();
-    let mut seen: HashSet<String> = HashSet::new();
+    let mut chain: Vec<&TranscriptEntry> = Vec::new();
+    let mut seen: HashSet<&str> = HashSet::new();
     let mut current = Some(leaf);
     while let Some(entry) = current {
         let Some(uuid) = entry_str(entry, "uuid") else {
             break;
         };
-        if !seen.insert(uuid.to_string()) {
+        if !seen.insert(uuid) {
             break;
         }
-        chain.push(entry.clone());
+        chain.push(entry);
         current = entry_str(entry, "parentUuid")
             .filter(|p| !p.is_empty())
             .and_then(|p| by_uuid.get(p).copied());
     }
     chain.reverse();
-    chain
+    recover_orphaned_parallel_tool_results(&by_uuid, &file_order, chain, &mut seen)
+        .into_iter()
+        .cloned()
+        .collect()
+}
+
+/// The API `message.id` of an assistant entry, if it has one.
+fn assistant_message_id(entry: &TranscriptEntry) -> Option<&str> {
+    if entry_str(entry, "type") != Some("assistant") {
+        return None;
+    }
+    entry
+        .get("message")?
+        .get("id")?
+        .as_str()
+        .filter(|id| !id.is_empty())
+}
+
+/// `id_field` of each `block_type` content block in an entry.
+fn content_block_ids<'e>(
+    entry: &'e TranscriptEntry,
+    block_type: &str,
+    id_field: &str,
+) -> Vec<&'e str> {
+    entry
+        .get("message")
+        .and_then(|m| m.get("content"))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|block| block.get("type").and_then(Value::as_str) == Some(block_type))
+        .filter_map(|block| block.get(id_field).and_then(Value::as_str))
+        .collect()
+}
+
+/// A user entry with a parent that carries a tool_result.
+fn is_tool_result_entry(entry: &TranscriptEntry) -> bool {
+    entry_str(entry, "type") == Some("user")
+        && entry_str(entry, "parentUuid").is_some_and(|p| !p.is_empty())
+        && entry
+            .get("message")
+            .and_then(|m| m.get("content"))
+            .and_then(Value::as_array)
+            .is_some_and(|content| {
+                content
+                    .iter()
+                    .any(|block| block.get("type").and_then(Value::as_str) == Some("tool_result"))
+            })
+}
+
+/// Whether two entries were written by the same (sub)agent.
+fn same_writer(a: &TranscriptEntry, b: &TranscriptEntry) -> bool {
+    // A null agentId and a missing one both mean the main agent.
+    fn agent_id(entry: &TranscriptEntry) -> Option<&Value> {
+        entry.get("agentId").filter(|v| !v.is_null())
+    }
+    entry_bool(a, "isSidechain") == entry_bool(b, "isSidechain") && agent_id(a) == agent_id(b)
+}
+
+fn timestamp_sort_key(entry: &TranscriptEntry) -> &str {
+    entry_str(entry, "timestamp").unwrap_or_default()
+}
+
+/// Put back the tool calls and results a parallel turn left off the chain.
+///
+/// The CLI writes one assistant entry per content block, so a response with
+/// N parallel tool calls is N assistant entries that share `message.id` and
+/// are chained one after another. Each tool_result entry's `parentUuid` is
+/// its own call's assistant entry, so the results fan out from different
+/// parents and the transcript forks. The `parentUuid` walk follows only the
+/// branch the next turn continued from: it keeps one result, and drops every
+/// call written after the one that result answers.
+///
+/// For each response on the chain, this collects its assistant entries and
+/// their tool results that the walk did not reach, and inserts them right
+/// after the response's last entry on the chain, so the response stays in one
+/// piece and every result follows its call. Same recovery as the Python SDK's
+/// `get_session_messages` and the TypeScript SDK's `getSessionMessages`.
+///
+/// `file_order` lists each uuid of `by_uuid` once, in first-seen file order.
+/// `seen` is the set of uuids on `chain`; recovered uuids are added to it.
+fn recover_orphaned_parallel_tool_results<'a>(
+    by_uuid: &HashMap<&'a str, &'a TranscriptEntry>,
+    file_order: &[&'a str],
+    chain: Vec<&'a TranscriptEntry>,
+    seen: &mut HashSet<&'a str>,
+) -> Vec<&'a TranscriptEntry> {
+    let uuid_of = |entry: &'a TranscriptEntry| entry_str(entry, "uuid").unwrap_or_default();
+
+    let chain_assistants: Vec<&'a TranscriptEntry> = chain
+        .iter()
+        .copied()
+        .filter(|e| entry_str(e, "type") == Some("assistant"))
+        .collect();
+
+    // Anchor = the last on-chain entry of each response.
+    let mut anchor_by_message_id: HashMap<&str, &str> = HashMap::new();
+    for entry in &chain_assistants {
+        if let Some(message_id) = assistant_message_id(entry) {
+            anchor_by_message_id.insert(message_id, uuid_of(entry));
+        }
+    }
+    if anchor_by_message_id.is_empty() {
+        return chain;
+    }
+
+    // Group every assistant entry by response, and record which entry made
+    // each tool call. A tool_use id claimed by two different responses is
+    // ambiguous (None) and is never used to place a result.
+    let mut siblings_by_message_id: HashMap<&str, Vec<&'a TranscriptEntry>> = HashMap::new();
+    let mut call_owner: HashMap<&str, Option<&'a TranscriptEntry>> = HashMap::new();
+    let mut tool_result_entries: Vec<&'a TranscriptEntry> = Vec::new();
+    for entry in file_order.iter().filter_map(|u| by_uuid.get(u).copied()) {
+        if let Some(message_id) = assistant_message_id(entry) {
+            siblings_by_message_id
+                .entry(message_id)
+                .or_default()
+                .push(entry);
+            for call_id in content_block_ids(entry, "tool_use", "id") {
+                let owner = call_owner.entry(call_id).or_insert(Some(entry));
+                let same_response =
+                    owner.is_some_and(|o| assistant_message_id(o) == Some(message_id));
+                *owner = same_response.then_some(entry);
+            }
+        } else if is_tool_result_entry(entry) {
+            tool_result_entries.push(entry);
+        }
+    }
+
+    // Index each tool result under the assistant entries it may belong to:
+    // its parent, its sourceToolAssistantUUID, and the owner of each call it
+    // answers. The last two only count when written by the same agent.
+    let mut results_by_assistant: HashMap<&str, Vec<&'a TranscriptEntry>> = HashMap::new();
+    for &result in &tool_result_entries {
+        let parent = entry_str(result, "parentUuid").unwrap_or_default();
+        results_by_assistant.entry(parent).or_default().push(result);
+        if let Some((&source, source_entry)) = entry_str(result, "sourceToolAssistantUUID")
+            .and_then(|source| by_uuid.get_key_value(source))
+        {
+            if same_writer(result, source_entry) {
+                results_by_assistant.entry(source).or_default().push(result);
+            }
+        }
+        for call_id in content_block_ids(result, "tool_result", "tool_use_id") {
+            if let Some(&Some(owner)) = call_owner.get(call_id) {
+                if same_writer(result, owner) {
+                    results_by_assistant
+                        .entry(uuid_of(owner))
+                        .or_default()
+                        .push(result);
+                }
+            }
+        }
+    }
+
+    // Only needed to place strays, which are rare: built on first use.
+    let mut answered_on_chain: Option<HashSet<&str>> = None;
+    let mut file_position: Option<HashMap<&str, usize>> = None;
+
+    let mut processed: HashSet<&str> = HashSet::new();
+    let mut inserts: HashMap<&str, Vec<&'a TranscriptEntry>> = HashMap::new();
+    for assistant in &chain_assistants {
+        let Some(message_id) = assistant_message_id(assistant) else {
+            continue;
+        };
+        if !processed.insert(message_id) {
+            continue;
+        }
+
+        let group = siblings_by_message_id
+            .get(message_id)
+            .map_or(std::slice::from_ref(assistant), Vec::as_slice);
+        let member_uuids: HashSet<&str> = group.iter().map(|m| uuid_of(m)).collect();
+        let mut orphaned_siblings: Vec<&'a TranscriptEntry> = group
+            .iter()
+            .copied()
+            .filter(|m| !seen.contains(uuid_of(m)))
+            .collect();
+        let mut orphaned_results: Vec<&'a TranscriptEntry> = Vec::new();
+        // Results indexed under this response whose parent is not one of its
+        // entries: recovered only if they answer a still-unanswered call.
+        let mut strays: Vec<&'a TranscriptEntry> = Vec::new();
+        let mut collected: HashSet<&str> = HashSet::new();
+        for member in group {
+            for &result in results_by_assistant
+                .get(uuid_of(member))
+                .into_iter()
+                .flatten()
+            {
+                let result_uuid = uuid_of(result);
+                if seen.contains(result_uuid) || !collected.insert(result_uuid) {
+                    continue;
+                }
+                let parent = entry_str(result, "parentUuid").unwrap_or_default();
+                if member_uuids.contains(parent) {
+                    orphaned_results.push(result);
+                } else {
+                    strays.push(result);
+                }
+            }
+        }
+
+        if !strays.is_empty() {
+            let mut answered = answered_on_chain
+                .get_or_insert_with(|| {
+                    chain
+                        .iter()
+                        .flat_map(|e| content_block_ids(e, "tool_result", "tool_use_id"))
+                        .collect()
+                })
+                .clone();
+            for result in &orphaned_results {
+                answered.extend(content_block_ids(result, "tool_result", "tool_use_id"));
+            }
+            let positions = file_position.get_or_insert_with(|| {
+                file_order
+                    .iter()
+                    .enumerate()
+                    .map(|(i, &u)| (u, i))
+                    .collect()
+            });
+            strays.sort_by_key(|e| positions.get(uuid_of(e)).copied());
+            for result in strays {
+                let call_ids = content_block_ids(result, "tool_result", "tool_use_id");
+                let answers_open_call = call_ids.iter().any(|call_id| {
+                    !answered.contains(call_id)
+                        && call_owner
+                            .get(call_id)
+                            .copied()
+                            .flatten()
+                            .is_some_and(|owner| member_uuids.contains(uuid_of(owner)))
+                });
+                if !answers_open_call {
+                    continue;
+                }
+                answered.extend(call_ids);
+                orphaned_results.push(result);
+            }
+        }
+
+        if orphaned_siblings.is_empty() && orphaned_results.is_empty() {
+            continue;
+        }
+
+        // Timestamp order keeps content-block and completion order. The sort
+        // is stable, so on a tie siblings keep file order and results keep
+        // the order of the calls they answer.
+        orphaned_siblings.sort_by_key(|e| timestamp_sort_key(e));
+        orphaned_results.sort_by_key(|e| timestamp_sort_key(e));
+        let mut recovered = orphaned_siblings;
+        recovered.extend(orphaned_results);
+        for entry in &recovered {
+            seen.insert(uuid_of(entry));
+        }
+        inserts.insert(anchor_by_message_id[message_id], recovered);
+    }
+
+    if inserts.is_empty() {
+        return chain;
+    }
+
+    let mut result_chain =
+        Vec::with_capacity(chain.len() + inserts.values().map(Vec::len).sum::<usize>());
+    for entry in chain {
+        result_chain.push(entry);
+        if let Some(recovered) = inserts.remove(uuid_of(entry)) {
+            result_chain.extend(recovered);
+        }
+    }
+    result_chain
 }
 
 /// Whether the entry should be included in the returned messages.
@@ -1162,7 +1436,10 @@ fn entries_to_session_messages(
 /// Read a session's conversation messages from its JSONL transcript file.
 ///
 /// Parses the full JSONL, builds the conversation chain via `parentUuid`
-/// links, and returns user/assistant messages in chronological order.
+/// links, and returns user/assistant messages in chronological order. A turn
+/// that ran tools in parallel is returned whole: every `tool_use` and every
+/// `tool_result`, not only the ones on the branch the conversation continued
+/// from.
 /// Returns an empty list if the session is not found, the session_id is not
 /// a valid UUID, or the transcript contains no visible messages.
 ///
@@ -1993,6 +2270,8 @@ pub async fn get_subagent_messages_from_store(
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
+
     use super::*;
 
     #[cfg(unix)]
@@ -2107,5 +2386,395 @@ mod tests {
         let chain = build_conversation_chain(&entries);
         let uuids: Vec<&str> = chain.iter().filter_map(|e| entry_str(e, "uuid")).collect();
         assert_eq!(uuids, vec!["u1", "a1", "u2"]);
+    }
+
+    fn transcript(values: Vec<Value>) -> Vec<TranscriptEntry> {
+        values
+            .into_iter()
+            .map(|value| match value {
+                Value::Object(map) => map,
+                _ => panic!("bad test data"),
+            })
+            .collect()
+    }
+
+    fn chain_uuids(values: Vec<Value>) -> Vec<String> {
+        build_conversation_chain(&transcript(values))
+            .iter()
+            .filter_map(|e| entry_str(e, "uuid"))
+            .map(str::to_string)
+            .collect()
+    }
+
+    fn prompt() -> Value {
+        json!({"type": "user", "uuid": "prompt", "parentUuid": null,
+               "message": {"role": "user", "content": "read them"}})
+    }
+
+    fn answer(parent: &str) -> Value {
+        json!({"type": "assistant", "uuid": "answer", "parentUuid": parent,
+               "message": {"role": "assistant", "content": "done"}})
+    }
+
+    /// One assistant turn with `tools` parallel tool calls, written the way
+    /// the CLI writes it: one assistant entry per tool_use block, all sharing
+    /// `message.id` and chained one after another, and one tool_result entry
+    /// per call whose `parentUuid` is that call's own entry. `result_order` is
+    /// the order the results are written in. Returns `(calls, results)`.
+    fn parallel_tool_turn(
+        parent: &str,
+        tools: usize,
+        result_order: &[usize],
+    ) -> (Vec<Value>, Vec<Value>) {
+        let calls = (0..tools)
+            .map(|i| {
+                let parent = match i {
+                    0 => parent.to_string(),
+                    _ => format!("call-{}", i - 1),
+                };
+                json!({
+                    "type": "assistant", "uuid": format!("call-{i}"), "parentUuid": parent,
+                    "timestamp": format!("2026-01-01T00:00:01.{i:03}Z"),
+                    "message": {"id": "msg_parallel", "role": "assistant", "content": [
+                        {"type": "tool_use", "id": format!("toolu_{i}"), "name": "Read", "input": {}},
+                    ]},
+                })
+            })
+            .collect();
+        let results = result_order
+            .iter()
+            .enumerate()
+            .map(|(position, i)| {
+                json!({
+                    "type": "user", "uuid": format!("result-{i}"), "parentUuid": format!("call-{i}"),
+                    "sourceToolAssistantUUID": format!("call-{i}"),
+                    "timestamp": format!("2026-01-01T00:00:02.{position:03}Z"),
+                    "message": {"role": "user", "content": [
+                        {"type": "tool_result", "tool_use_id": format!("toolu_{i}"), "content": "ok"},
+                    ]},
+                })
+            })
+            .collect();
+        (calls, results)
+    }
+
+    fn block_ids(messages: &[SessionMessage], block_type: &str, field: &str) -> Vec<String> {
+        messages
+            .iter()
+            .filter_map(|m| m.message.get("content").and_then(Value::as_array))
+            .flatten()
+            .filter(|block| block.get("type").and_then(Value::as_str) == Some(block_type))
+            .filter_map(|block| block.get(field).and_then(Value::as_str))
+            .map(str::to_string)
+            .collect()
+    }
+
+    #[test]
+    fn parallel_tool_calls_keep_every_call_and_result() {
+        use SessionMessageType::{Assistant, User};
+        for result_order in [[0, 1, 2], [2, 1, 0], [1, 2, 0], [0, 2, 1]] {
+            let (calls, results) = parallel_tool_turn("prompt", 3, &result_order);
+            // The next response continues from the last result written.
+            let last_result = results[2]["uuid"].as_str().unwrap().to_string();
+            let mut values = vec![prompt()];
+            values.extend(calls);
+            values.extend(results);
+            values.push(answer(&last_result));
+
+            let messages = entries_to_session_messages(&transcript(values), None, 0);
+
+            let mut result_ids = block_ids(&messages, "tool_result", "tool_use_id");
+            result_ids.sort();
+            assert_eq!(
+                block_ids(&messages, "tool_use", "id"),
+                ["toolu_0", "toolu_1", "toolu_2"],
+                "{result_order:?}"
+            );
+            assert_eq!(
+                result_ids,
+                ["toolu_0", "toolu_1", "toolu_2"],
+                "{result_order:?}"
+            );
+            let unique: HashSet<&str> = messages.iter().map(|m| m.uuid.as_str()).collect();
+            assert_eq!(messages.len(), 8, "{result_order:?}");
+            assert_eq!(unique.len(), 8, "{result_order:?}");
+            // The turn stays in one piece: prompt, calls, results, answer.
+            let types: Vec<SessionMessageType> = messages.iter().map(|m| m.message_type).collect();
+            assert_eq!(
+                types,
+                [User, Assistant, Assistant, Assistant, User, User, User, Assistant],
+                "{result_order:?}"
+            );
+            assert_eq!(messages[0].uuid, "prompt");
+            assert_eq!(messages[7].uuid, "answer");
+        }
+    }
+
+    #[test]
+    fn parallel_tool_calls_as_last_turn() {
+        let (calls, results) = parallel_tool_turn("prompt", 2, &[1, 0]);
+        let mut values = vec![prompt()];
+        values.extend(calls);
+        values.extend(results);
+        let messages = entries_to_session_messages(&transcript(values), None, 0);
+        let uuids: Vec<&str> = messages.iter().map(|m| m.uuid.as_str()).collect();
+        assert_eq!(
+            uuids,
+            ["prompt", "call-0", "call-1", "result-1", "result-0"]
+        );
+    }
+
+    #[test]
+    fn parallel_tool_calls_limit_offset() {
+        let (calls, results) = parallel_tool_turn("prompt", 3, &[0, 1, 2]);
+        let mut values = vec![prompt()];
+        values.extend(calls);
+        values.extend(results);
+        values.push(answer("result-2"));
+        let page = entries_to_session_messages(&transcript(values), Some(3), 4);
+        let uuids: Vec<&str> = page.iter().map(|m| m.uuid.as_str()).collect();
+        assert_eq!(uuids, ["result-0", "result-1", "result-2"]);
+    }
+
+    #[test]
+    fn chain_recovers_sibling_calls_dropped_by_the_walk() {
+        // Walking back from the first call's result skips the later calls.
+        let (calls, results) = parallel_tool_turn("prompt", 3, &[1, 2, 0]);
+        let mut values = vec![prompt()];
+        values.extend(calls);
+        values.extend(results);
+        values.push(answer("result-0"));
+        // The off-branch calls and their results go right after the last call
+        // on the branch, ahead of that branch's own result.
+        assert_eq!(
+            chain_uuids(values),
+            [
+                "prompt", "call-0", "call-1", "call-2", "result-1", "result-2", "result-0",
+                "answer"
+            ]
+        );
+    }
+
+    #[test]
+    fn chain_recovered_results_are_in_completion_order() {
+        // The second call finished first.
+        let (calls, results) = parallel_tool_turn("prompt", 3, &[1, 0, 2]);
+        let mut values = vec![prompt()];
+        values.extend(calls);
+        values.extend(results);
+        values.push(answer("result-2"));
+        assert_eq!(
+            chain_uuids(values),
+            [
+                "prompt", "call-0", "call-1", "call-2", "result-1", "result-0", "result-2",
+                "answer"
+            ]
+        );
+    }
+
+    #[test]
+    fn chain_recovered_calls_are_in_timestamp_order() {
+        let (calls, results) = parallel_tool_turn("prompt", 3, &[1, 2, 0]);
+        // call-2 reached the file before call-1.
+        let mut values = vec![
+            prompt(),
+            calls[0].clone(),
+            calls[2].clone(),
+            calls[1].clone(),
+        ];
+        values.extend(results);
+        values.push(answer("result-0"));
+        assert_eq!(chain_uuids(values)[1..4], ["call-0", "call-1", "call-2"]);
+    }
+
+    #[test]
+    fn chain_sequential_tool_calls_are_unchanged() {
+        // A response whose calls ran one at a time has nothing to recover.
+        let entries = transcript(vec![
+            prompt(),
+            json!({"type": "assistant", "uuid": "call-0", "parentUuid": "prompt",
+                   "message": {"id": "msg_1", "content": [{"type": "tool_use", "id": "toolu_0"}]}}),
+            json!({"type": "user", "uuid": "result-0", "parentUuid": "call-0",
+                   "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_0"}]}}),
+            json!({"type": "assistant", "uuid": "call-1", "parentUuid": "result-0",
+                   "message": {"id": "msg_1", "content": [{"type": "tool_use", "id": "toolu_1"}]}}),
+            json!({"type": "user", "uuid": "result-1", "parentUuid": "call-1",
+                   "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_1"}]}}),
+        ]);
+        assert_eq!(build_conversation_chain(&entries), entries);
+    }
+
+    #[test]
+    fn chain_abandoned_branch_is_not_recovered() {
+        // An earlier attempt at the same turn is a different response, so it
+        // stays off the chain.
+        let (calls, results) = parallel_tool_turn("prompt", 2, &[0, 1]);
+        let mut values = vec![
+            prompt(),
+            json!({"type": "assistant", "uuid": "old-call", "parentUuid": "prompt",
+                   "message": {"id": "msg_abandoned", "content": [{"type": "tool_use", "id": "toolu_old"}]}}),
+            json!({"type": "user", "uuid": "old-result", "parentUuid": "old-call",
+                   "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_old"}]}}),
+        ];
+        values.extend(calls);
+        values.extend(results);
+        assert_eq!(
+            chain_uuids(values),
+            ["prompt", "call-0", "call-1", "result-0", "result-1"]
+        );
+    }
+
+    #[test]
+    fn chain_recovers_result_whose_parent_is_outside_the_turn() {
+        // Matched to its call by tool_use_id.
+        let (calls, mut results) = parallel_tool_turn("prompt", 2, &[0, 1]);
+        results[0]["parentUuid"] = json!("missing");
+        results[0]
+            .as_object_mut()
+            .unwrap()
+            .remove("sourceToolAssistantUUID");
+        let mut values = vec![prompt()];
+        values.extend(calls);
+        values.extend(results);
+        values.push(answer("result-1"));
+        assert_eq!(
+            chain_uuids(values),
+            ["prompt", "call-0", "call-1", "result-0", "result-1", "answer"]
+        );
+    }
+
+    #[test]
+    fn chain_does_not_duplicate_an_answered_call() {
+        let (calls, results) = parallel_tool_turn("prompt", 2, &[0, 1]);
+        let mut duplicate = results[1].clone();
+        duplicate["uuid"] = json!("result-1-copy");
+        duplicate["parentUuid"] = json!("elsewhere");
+        duplicate
+            .as_object_mut()
+            .unwrap()
+            .remove("sourceToolAssistantUUID");
+        let mut values = vec![prompt()];
+        values.extend(calls);
+        values.extend(results);
+        values.push(duplicate);
+        values.push(answer("result-1"));
+        assert_eq!(
+            chain_uuids(values),
+            ["prompt", "call-0", "call-1", "result-0", "result-1", "answer"]
+        );
+    }
+
+    #[test]
+    fn chain_does_not_pull_in_another_agents_result() {
+        // A sidechain result that reuses a main-chain tool_use_id.
+        let (calls, mut results) = parallel_tool_turn("prompt", 2, &[0, 1]);
+        results[0]["parentUuid"] = json!("sidechain-call");
+        results[0]["isSidechain"] = json!(true);
+        results[0]["agentId"] = json!("agent-1");
+        results[0]
+            .as_object_mut()
+            .unwrap()
+            .remove("sourceToolAssistantUUID");
+        let mut values = vec![prompt()];
+        values.extend(calls);
+        values.extend(results);
+        values.push(answer("result-1"));
+        assert_eq!(
+            chain_uuids(values),
+            ["prompt", "call-0", "call-1", "result-1", "answer"]
+        );
+    }
+
+    #[test]
+    fn chain_matches_result_when_agent_id_is_null() {
+        // `"agentId": null` and no agentId are the same writer.
+        let (calls, mut results) = parallel_tool_turn("prompt", 2, &[0, 1]);
+        results[0]["parentUuid"] = json!("missing");
+        results[0]["agentId"] = Value::Null;
+        results[0]
+            .as_object_mut()
+            .unwrap()
+            .remove("sourceToolAssistantUUID");
+        let mut values = vec![prompt()];
+        values.extend(calls);
+        values.extend(results);
+        values.push(answer("result-1"));
+        assert_eq!(
+            chain_uuids(values),
+            ["prompt", "call-0", "call-1", "result-0", "result-1", "answer"]
+        );
+    }
+
+    #[test]
+    fn chain_recovers_a_repeated_entry_once() {
+        // A call entry written twice under the same uuid is recovered once.
+        let (calls, results) = parallel_tool_turn("prompt", 3, &[1, 2, 0]);
+        let mut values = vec![prompt()];
+        values.extend(calls.clone());
+        values.push(calls[2].clone());
+        values.extend(results);
+        values.push(answer("result-0"));
+        assert_eq!(
+            chain_uuids(values),
+            [
+                "prompt", "call-0", "call-1", "call-2", "result-1", "result-2", "result-0",
+                "answer"
+            ]
+        );
+    }
+
+    #[test]
+    fn chain_ignores_a_tool_use_id_claimed_by_two_responses() {
+        // toolu_0 is also claimed by an abandoned response, so a result that
+        // only matches by tool_use_id cannot be placed.
+        let (calls, mut results) = parallel_tool_turn("prompt", 2, &[0, 1]);
+        results[0]["parentUuid"] = json!("missing");
+        results[0]
+            .as_object_mut()
+            .unwrap()
+            .remove("sourceToolAssistantUUID");
+        let mut values = vec![
+            prompt(),
+            json!({"type": "assistant", "uuid": "old-call", "parentUuid": "prompt",
+                   "message": {"id": "msg_abandoned", "content": [{"type": "tool_use", "id": "toolu_0"}]}}),
+        ];
+        values.extend(calls);
+        values.extend(results);
+        values.push(answer("result-1"));
+        assert_eq!(
+            chain_uuids(values),
+            ["prompt", "call-0", "call-1", "result-1", "answer"]
+        );
+    }
+
+    #[test]
+    fn chain_recovery_tolerates_malformed_entries() {
+        let (calls, mut results) = parallel_tool_turn("prompt", 2, &[0, 1]);
+        results[0]["timestamp"] = json!(12345);
+        let mut values = vec![prompt()];
+        values.extend(calls);
+        values.extend(results);
+        values.push(json!({"type": "assistant", "uuid": "no-message", "parentUuid": "result-1"}));
+        values.push(json!({
+            "type": "assistant", "uuid": "odd", "parentUuid": "no-message",
+            "message": {"id": 7, "content": ["text", null, {"type": "tool_use"}]},
+        }));
+        values.push(json!({
+            "type": "user", "uuid": "odd-result", "parentUuid": "odd",
+            "message": {"content": [{"type": "tool_result", "tool_use_id": 3}]},
+        }));
+        assert_eq!(
+            chain_uuids(values),
+            [
+                "prompt",
+                "call-0",
+                "call-1",
+                "result-0",
+                "result-1",
+                "no-message",
+                "odd",
+                "odd-result"
+            ]
+        );
     }
 }
