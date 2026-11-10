@@ -184,6 +184,59 @@ async fn store_backed_listing_and_messages() {
 }
 
 #[tokio::test]
+async fn store_backed_messages_keep_parallel_tool_calls() {
+    // Parallel tool calls fork the transcript: each result's parent is its
+    // own call's entry. All calls and results are still returned.
+    let store = store();
+    let cwd = std::env::current_dir().unwrap();
+    let project_key = project_key_for_directory(Some(&cwd.to_string_lossy()));
+    let key = SessionKey::new(project_key, SESSION_ID);
+    let mut entries = vec![entry(json!({
+        "type": "user", "uuid": "prompt", "parentUuid": null, "sessionId": SESSION_ID,
+        "message": {"role": "user", "content": "read them"},
+    }))];
+    for i in 0..3 {
+        let parent = if i == 0 {
+            "prompt".to_string()
+        } else {
+            format!("call-{}", i - 1)
+        };
+        entries.push(entry(json!({
+            "type": "assistant", "uuid": format!("call-{i}"), "parentUuid": parent,
+            "sessionId": SESSION_ID,
+            "message": {"id": "msg_parallel", "role": "assistant", "content": [
+                {"type": "tool_use", "id": format!("toolu_{i}"), "name": "Read", "input": {}},
+            ]},
+        })));
+    }
+    for i in 0..3 {
+        entries.push(entry(json!({
+            "type": "user", "uuid": format!("result-{i}"), "parentUuid": format!("call-{i}"),
+            "sessionId": SESSION_ID,
+            "message": {"role": "user", "content": [
+                {"type": "tool_result", "tool_use_id": format!("toolu_{i}"), "content": "ok"},
+            ]},
+        })));
+    }
+    // The next response continues from the first result, so the walk back
+    // from it reaches only call-0.
+    entries.push(entry(json!({
+        "type": "assistant", "uuid": "answer", "parentUuid": "result-0", "sessionId": SESSION_ID,
+        "message": {"role": "assistant", "content": [{"type": "text", "text": "done"}]},
+    })));
+    store.append(&key, entries).await.unwrap();
+
+    let messages = get_session_messages_from_store(&store, SESSION_ID, None, None, 0)
+        .await
+        .unwrap();
+    let uuids: Vec<&str> = messages.iter().map(|m| m.uuid.as_str()).collect();
+    assert_eq!(
+        uuids,
+        ["prompt", "call-0", "call-1", "call-2", "result-1", "result-2", "result-0", "answer"]
+    );
+}
+
+#[tokio::test]
 async fn store_backed_subagents() {
     let store = store();
     let cwd = std::env::current_dir().unwrap();

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `get_session_messages` and `get_session_messages_from_store` now return every
+  tool call and tool result from turns that ran tools in parallel. Previously
+  only one branch of the forked transcript was followed, so some calls and
+  results were dropped. Port of the Python SDK fix in `v0.2.170`.
+
 ## [0.1.0] - 2026-08-30
 
 ### Added
